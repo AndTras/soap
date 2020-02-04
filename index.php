@@ -1,32 +1,32 @@
 <?php
 
-    $servername = "localhost";
-    $username = "root";
-    $password = "";
-    $dbname = "soap";
+    require('conexion.php');
+    require('api.php');
     $html = "";
+    $sqlQuery = new conexion();
+    $api = new api();
 
-    $conn = new mysqli($servername, $username, $password,$dbname);
+    //se valida si se esta recibiendo el parametro de consulta
     if(isset($_POST['start'])){
 
         $date = $_POST['start'];
-  
-        if ($conn->connect_error) {
-            die("Connection failed: " . $conn->connect_error);
-        }
 
+        // se consulta en base de datos si la fecha ya fue registrada
         $sql = "SELECT date FROM soap_dates where date = '$date'"; 
-
-        $consulta = $conn->query($sql);
+        $sqlQuery->sql($sql);
+        $consulta = $sqlQuery->get_result();
 
         if ($consulta->num_rows > 0) {
 
-            $sql = "SELECT archivos.id, archivos.name, tipo_archivo.formato FROM archivos INNER JOIN tipo_archivo ON archivos.id = tipo_archivo.id where archivos.date = '$date'"; 
-            
-            $consulta2 = $conn->query($sql);
+            // si ya fue registrada la fecha es porque ya se han guardado registros, a continuacion, procede a buscar esos registros 
+            $sql = "SELECT archivos.id, archivos.name, tipo_archivo.formato FROM archivos INNER JOIN tipo_archivo ON archivos.id = tipo_archivo.id AND archivos.date = tipo_archivo.date where archivos.date = '$date'"; 
+            $sqlQuery->sql($sql);
+            $consulta = $sqlQuery->get_result();
 
-            if ($consulta2->num_rows > 0) {
+            if ($consulta->num_rows > 0) {
 
+                //codigo para armar los registros
+                
                 $html = "<table class='table table-striped table-dark table-responsive'>
                         <thead>
                                 <tr>
@@ -44,13 +44,14 @@
                                 </tr>
                         </thead>
                         <tbody>";
-                while($row = $consulta2->fetch_assoc()) {
-                    $html .= "<tr>
-                                <td class='col-md-3'>".$row['id']."</td>
-                                <td class='col-md-3'> <span class='d-inline-block text-truncate' style='max-width: 40%;'>".$row['name']."</span></td>
-                                <td class='col-md-6' colspan='2'>".$row['formato']."</td>
-                            </tr>";
-                }
+                        
+                        while($row = $consulta->fetch_assoc()) {
+                            $html .= "<tr>
+                                        <td class='col-md-3'>".$row['id']."</td>
+                                        <td class='col-md-3'> <span class='d-inline-block text-truncate' style='max-width: 40%;'>".$row['name']."</span></td>
+                                        <td class='col-md-6' colspan='2'>".$row['formato']."</td>
+                                    </tr>";
+                        }
 
                 $html .=  " </tbody><table>";
         
@@ -60,52 +61,15 @@
 
         }else {
         
-    
-            $sqlInsert = "INSERT INTO soap_dates (date)VALUES ('$date')";
-            
-            if ($conn->query($sqlInsert) === TRUE) {
-            
-            } else {
-                echo "Error: " . $sqlInsert . "<br>" . $conn->error;
-            }
+            //en dado caso que la fecha no haya sido registra, a continuacion se procedea a guardarla
 
-            $curl = curl_init();
-
-            curl_setopt_array($curl, array(
-            CURLOPT_URL => "http://test.analitica.com.co/AZDigital_Pruebas/WebServices/SOAP/index.php",
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_ENCODING => "",
-            CURLOPT_MAXREDIRS => 10,
-            CURLOPT_TIMEOUT => 0,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-            CURLOPT_CUSTOMREQUEST => "POST",
-            CURLOPT_POSTFIELDS =>"\r\n\r\n
-                <soapenv:Envelope xmlns:soapenv=\"http://schemas.xmlsoap.org/soap/envelope/\"
-                xmlns:xsds=\"http://www.analitica.com.co/AZDigital/xsds/\">\r\n   
-                    <soapenv:Header/>\r\n   
-                    <soapenv:Body>\r\n      
-                        <xsds:BuscarArchivo>\r\n        
-                            <Condiciones>\r\n                
-                                <Condicion Tipo=\"FechaInicial\" Expresion=\"$date 00:00:00\"/>\r\n            
-                            </Condiciones>\r\n      
-                        </xsds:BuscarArchivo>\r\n   
-                    </soapenv:Body>\r\n
-                </soapenv:Envelope>",
-            CURLOPT_HTTPHEADER => array("Content-Type: text/xml"),
-            ));
-
-            $response = curl_exec($curl);
-
-            curl_close($curl);
-
-            $response = preg_replace("/(<\/?)(\w+):([^>]*>)/", "$1$2$3", $response);
-            $xml = new SimpleXMLElement($response);
-            $body = $xml->xpath('//soapEnvelope')[0];
-            $array = json_decode(json_encode((array)$body), TRUE); 
-            $array = $array['soapBody']['azRtaBuscarArchivo'];
+            $sql = "INSERT INTO soap_dates (date)VALUES ('$date')";
+            $sqlQuery->sql($sql);
+            $array = $api->get($date);
 
             if(count($array) > 0){
+                
+                // se pinta la tabla con los datos
 
                 $html = "<table class='table table-striped table-dark  table-responsive'>
                             <thead>
@@ -125,57 +89,58 @@
                             </thead>
                         <tbody>";
 
-                foreach ($array['Archivo'] as $key => $value) {
-        
-                    if (array_key_exists('@attributes', $value)) {
-                        $value = $value['@attributes'];
-                    }
-                    
-                    $id = $value['Id'];
-                    $name = $value['Nombre'];
-    
-                    $name = explode('.',$name);
-                    $con = count($name)-1;
-                    $nom ='';
-
-                    for ($x = 0; $x <= $con-1; $x++) {
-                        $nom .= $name[$x].'.';
-                    }
-              
-                    $sqlInsert = "INSERT INTO archivos (id,name,date) VALUES ('$id','$nom','$date')";
-                    
-                    if ($conn->query($sqlInsert) === TRUE) {
+                        foreach ($array['Archivo'] as $key => $value) {
                 
-                        $sqlInsert2 = "INSERT INTO tipo_archivo (id,formato,date) VALUES ('$id','$name[$con]','$date')";
-                        
-                        if ($conn->query($sqlInsert2) === TRUE) {
-                            $html .= "<tr>
-                                        <td class='col-md-3'>".$id."</td>
-                                        <td class='col-md-3'><span class='d-inline-block text-truncate' style='max-width: 80%;'>".$nom."</span> </td>
-                                        <td class='col-md-6' colspan='2'>".$name[$con]."</td>
-                                      </tr>";
-                        }
+                            if (array_key_exists('@attributes', $value)) {
+                                $value = $value['@attributes'];
+                            }
+                            
+                            $id = $value['Id'];
+                            $name = $value['Nombre'];
 
-                    } else {
-                        echo "Error: " . $sqlInsert . "<br>" . $conn->error;
-                    }
-                }
+                            // codigo para separar el nombre del documento de su correspondiente formato 
+
+                            $name = explode('.',$name);
+                            $con = count($name)-1;
+                            $nom ='';
+
+                            for ($x = 0; $x <= $con-1; $x++) {
+                                $nom .= $name[$x].'.';
+                            }
+                            
+                            // se procede a guardar los registros, para luego poder consultarlos de una manera mas rapida
+
+                            $sql = "INSERT INTO archivos (id,name,date) VALUES ('$id','$nom','$date')";
+                            
+                            if ($sqlQuery->sql($sql) === TRUE) {
+                        
+                                $sql = "INSERT INTO tipo_archivo (id,formato,date) VALUES ('$id','$name[$con]','$date')";
+                                
+                                if ($sqlQuery->sql($sql) === TRUE) {
+                                    $html .= "<tr>
+                                                <td class='col-md-3'>".$id."</td>
+                                                <td class='col-md-3'><span class='d-inline-block text-truncate' style='max-width: 80%;'>".$nom."</span> </td>
+                                                <td class='col-md-6' colspan='2'>".$name[$con]."</td>
+                                            </tr>";
+                                }
+
+                            } 
+                        }
                 $html .= " </tbody><table>";
             }else{
                 echo "no hay archivos";
             }
         }
-      
-
     }else {
         $html = 0;
         
-        if(isset($_POST['dateFormato'])){
-            $dateFormato = $_POST['dateFormato'];
+        // consulta cantidad de archivos por tipo documento  
 
-            $sql = "SELECT formato , COUNT(formato) as cantidad FROM tipo_archivo where date = '$dateFormato' GROUP BY formato ORDER BY cantidad DESC "; 
-            
-            $consulta = $conn->query($sql);
+        if(isset($_POST['dateFormato'])){
+            $date = $_POST['dateFormato'];
+            $sql = "SELECT formato , COUNT(formato) as cantidad FROM tipo_archivo where date = '$date' GROUP BY formato ORDER BY cantidad DESC "; 
+            $sqlQuery->sql($sql);
+            $consulta = $sqlQuery->get_result();
 
             if ($consulta->num_rows > 0) {
 
@@ -200,8 +165,6 @@
             }
         }
     }
-
-    $conn->close();
 ?>
 
 
@@ -240,7 +203,7 @@
         </div>
 
         <div class=" col-md-12">
-            <h1>Consulta de Archivos.</h1>
+            <h1>Consulta de Archivos. <?php (isset($date)?print_r($date):'');?> </h1>
             <br>
             <button type="button" class="btn btn-primary" data-toggle="modal" data-target="#exampleModal"> Consultar Archivos </button>
         </div>
